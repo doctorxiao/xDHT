@@ -3,8 +3,10 @@ var bencode=require("bencode");
 var dgram=require('dgram');
 var ids=new Array();
 var nodes=new Array();
+var nodenum=new Array();
+var nodeold=new Array();
 var finders=new Array();
-var nodenum=0;
+var nodenuma=0;
 
 function listen4msg(port)
 {
@@ -18,7 +20,6 @@ function listen4msg(port)
         }
         catch (error)
         {
-            //console.log("1:"+error);
             error=null;
         }
         msg=null;
@@ -26,7 +27,9 @@ function listen4msg(port)
     });
 	for(var i=0;i<256;i++)
 	{
-	    nodes[port-6000][i]=new Array();
+	    nodes[port-6000][i]=new Buffer(8*26);
+		nodenum[port-6000][i]=0;
+		nodeold[port-6000][i]=0;
 	}
 	var tobesend={};
     tobesend.t=randomString(10);
@@ -45,10 +48,6 @@ function listen4msg(port)
 
 function handelmsg(msg,rinfo,s)
 {
-    //console.log(msg);
-	//var buf=tool.randomBuffer(10);
-	//s.send(buf,0,10,rinfo.port,rinfo.address);
-	//console.log(rinfo);
 	msgobj=bencode.decode(msg);
 	if (typeof(msgobj.y)!="undefined" && msgobj.y=="q")
     {
@@ -117,7 +116,6 @@ function handelqueryping(msgobj,rinfo,s)
 
 function handelqueryfind(msgobj,rinfo,s)
 {
-    //console.log(s.address().port+":find");
     var target=msgobj.a.target;
     var head=target[0];
     var re={};
@@ -126,7 +124,18 @@ function handelqueryfind(msgobj,rinfo,s)
     re.y="r";
     re.r={};
     re.r.id=ids[xh];
-	re.r.nodes=Buffer.concat(nodes[xh][head]);
+	if (nodenum[xh][head]>=8)
+	{
+	    re.r.nodes=nodes[xh][head];
+	} else
+	{
+	    var buftmp=new Buffer(26*nodenum[xh][head]);
+		nodes[xh][head].copy(buftmp,0,0,26*nodenum[xh][head]);
+		re.r.nodes=buftmp;
+	}
+	//console.log(nodenum[xh][head]);
+	//console.log(nodes[xh][head]);
+	//console.log(re.r.nodes.length);
     var b=new Buffer(bencode.encode(re));
 	s.send(b,0,b.length,rinfo.port,rinfo.address);
     target=null;
@@ -143,7 +152,6 @@ function handelqueryfind(msgobj,rinfo,s)
 function handelqueryget(msgobj,rinfo,s)
 {
     var target=msgobj.a.info_hash;
-	//recordhash("get:",target);
     var head=target[0];
     var re={};
 	var xh=s.address().port-6000;
@@ -152,7 +160,18 @@ function handelqueryget(msgobj,rinfo,s)
     re.r={};
     re.r.id=ids[xh];
 	re.r.token=randomString(8);
-	re.r.nodes=Buffer.concat(nodes[xh][head]);
+	if (nodenum[xh][head]>=8)
+	{
+	    re.r.nodes=nodes[xh][head];
+	} else
+	{
+	    var buftmp=new Buffer(26*nodenum[xh][head]);
+		nodes[xh][head].copy(buftmp,0,0,26*nodenum[xh][head]);
+		re.r.nodes=buftmp;
+	}
+	//console.log(nodenum[xh][head]);
+	//console.log(nodes[xh][head]);
+	//console.log(re.r.nodes.length);
     var b=new Buffer(bencode.encode(re));
 	s.send(b,0,b.length,rinfo.port,rinfo.address);
     target=null;
@@ -202,9 +221,12 @@ function handelresponsefind(msgobj,s)
                 {
                     flag=true;
                 }
-                for (var t in nodes[xh][head])
+                for (var t=0;t<nodenum[xh][head];t++)
                 {
-                    if (DHTnode(nodes[xh][head][t]).ip==nodenow.ip && DHTnode(nodes[xh][head][t]).port==nodenow.port)
+				    var buftmp=new Buffer(26);
+					nodes[xh][head].copy(buftmp,0,t*26,(t+1)*26);
+					var nodetmp=DHTnode(buftmp);
+                    if (nodetmp.ip==nodenow.ip && nodetmp.port==nodenow.port)
                     {
                         flag=true;
                         break;
@@ -212,15 +234,30 @@ function handelresponsefind(msgobj,s)
                 }
                 if (!flag)
                 {
-				    if (nodes[xh][head].length>=8)
+				    if (nodenum[xh][head]>=8)
 					{
-					    nodes[xh][head].shift();
+					    nodenowstr.copy(nodes[xh][head],nodeold[xh][head]*26,0,26);
+						if (nodeold[xh][head]<7)
+						{
+						    nodeold[xh][head]++;
+						} else
+						{
+						    nodeold[xh][head]=0
+						}
 					}  else
 					{
-					    nodenum++;
-						console.log(nodenum);
+					    nodenowstr.copy(nodes[xh][head],nodeold[xh][head]*26,0,26);
+						if (nodeold[xh][head]<7)
+						{
+						    nodeold[xh][head]++;
+						} else
+						{
+						    nodeold[xh][head]=0
+						}
+						nodenum[xh][head]++;
+						//nodenuma++;
+						//console.log(nodenuma);
 					}
-					nodes[xh][head].push(nodenowstr);
                     var tobesend={};
                     tobesend.t=transactID;
                     tobesend.y="q";
@@ -353,6 +390,8 @@ for(var i=0;i<200;i++)
     ids.push(randomBuffer(20));
 	finders.push(new Array());
 	nodes.push(new Array(256));
+	nodenum.push(new Array(256));
+	nodeold.push(new Array(256));
     listen4msg(6000+i);
 }
 
